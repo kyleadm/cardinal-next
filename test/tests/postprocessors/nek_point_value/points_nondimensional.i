@@ -1,13 +1,23 @@
 [Problem]
-  type = NekRSStandaloneProblem
+  type = NekRSProblem
   casename = 'brick'
-  nondimensional = true
-  L_ref = 5.0
-  U_ref = 0.2
-  T_ref = 10.0
-  dT_ref = 200.0
-  rho_0 = 1000
-  Cp_0 = 3000
+  n_usrwrk_slots = 4
+
+  [Dimensionalize]
+    L = 5.0
+    U = 0.2
+    T = 10.0
+    dT = 200.0
+    rho = 1000
+    Cp = 3000
+
+    s01 = 15.0
+    ds01 = 250.0
+    s02 = 20.0
+    ds02 = 300.0
+    s03 = 5.0
+    ds03 = 100.0
+  []
 []
 
 [Mesh]
@@ -21,13 +31,6 @@
 
   [TimeStepper]
     type = NekTimeStepper
-  []
-[]
-
-[Functions]
-  [s]
-    type = ParsedFunction
-    expression = 'sin(x)+sin(y)+z+10*t'
   []
 []
 
@@ -50,6 +53,12 @@
   [vz]
     type = NekPointValue
     field = velocity_z
+    point = '0.25 0.3 0.27'
+  []
+  [comp]
+    type = NekPointValue
+    field = velocity_component
+    velocity_direction = '0.5 0.5 0.5'
     point = '0.25 0.3 0.27'
   []
   [vx2]
@@ -92,22 +101,24 @@
     field = scalar03
     point = '0.25 0.3 0.27'
   []
-  [vc]
+  [unity]
     type = NekPointValue
-    field = velocity_component
-    velocity_direction = '1 1 1'
+    field = unity
     point = '0.25 0.3 0.27'
   []
-  [vx_shift]
+  [usrwrk00]
     type = NekPointValue
-    field = velocity_x
-    function = s
+    field = usrwrk00
     point = '0.25 0.3 0.27'
   []
-  [T_shift]
+  [usrwrk01]
     type = NekPointValue
-    field = temperature
-    function = s
+    field = usrwrk01
+    point = '0.25 0.3 0.27'
+  []
+  [usrwrk02]
+    type = NekPointValue
+    field = usrwrk02
     point = '0.25 0.3 0.27'
   []
 []

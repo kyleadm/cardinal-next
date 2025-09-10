@@ -1,13 +1,14 @@
 [Tests]
-  design = 'NekVolumeExtremeValue.md'
-  issues = '#1046'
-
   [nek_volume_extrema]
     type = CSVDiff
     input = nek.i
     csvdiff = nek_out.csv
-  requirement = 'The system shall compute max/min values of the NekRS solution fields on the NekRS volume mesh; this is verified by performing identical operations in MOOSE for a dimensional case.'
-    required_objects = 'NekRSProblem'
+    requirement = "NekVolumeExtremeValue shall correctly compute max/min values "
+                  "on the nekRS volume mesh. The gold file was created "
+                  "by running the moose.i input, which computes the same max/min operations using "
+                  "existing MOOSE postprocessors on the same mesh on auxvariables that match "
+                  "the functional form of the solution fields initialized in the pyramid.udf. "
+    capabilities = 'nekrs'
   []
   [invalid_field]
     type = RunException
@@ -15,6 +16,6 @@
     cli_args = "Postprocessors/max_temp/field=velocity_component Postprocessors/max_temp/velocity_direction='1 0 0'"
     expect_err = "Setting 'field = velocity_component' is not yet implemented"
     requirement = "System shall error if using an unsupported field with a volume extrema postprocessor."
-    required_objects = 'NekRSProblem'
+    capabilities = 'nekrs'
   []
 []

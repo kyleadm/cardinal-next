@@ -123,6 +123,13 @@ public:
   const std::vector<std::string> & getScores() const { return _tally_score; }
 
   /**
+   * Get the index corresponding to a specific score.
+   * @param[in] score the score
+   * @return the index of the score, -1 indicates the score does not exist
+   */
+  int scoreIndex(const std::string & score) const;
+
+  /**
    * Gets the auxvariable names for use in creating and storing tally results.
    * This allows for the splitting of tally results into energy bins, angular bins, etc.
    *
@@ -163,6 +170,13 @@ public:
    * @return a vector of variables corresponding to the score
    */
   std::vector<std::string> getScoreVars(const std::string & score) const;
+
+  /**
+   * Check to see if the given external filter bin is skipped during normalization.
+   * @param[in] ext_bin the external filter bin
+   * @return whether the bin is skipped during normalization or not
+   */
+  bool extBinSkipped(unsigned int ext_bin) const { return _ext_bins_to_skip[ext_bin]; }
 
   /**
    * Check to see if this tally uses a trigger or not.
@@ -328,6 +342,9 @@ protected:
 
   /// Whether the problem uses adaptive mesh refinement or not.
   const bool _is_adaptive;
+
+  /// External filter bins to skip while computing the tally sum and mean for normalization.
+  std::vector<bool> _ext_bins_to_skip;
 
   /// Tolerance for setting zero tally
   static constexpr Real ZERO_TALLY_THRESHOLD = 1e-12;

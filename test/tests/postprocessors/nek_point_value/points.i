@@ -1,6 +1,7 @@
 [Problem]
-  type = NekRSStandaloneProblem
+  type = NekRSProblem
   casename = 'brick'
+  n_usrwrk_slots = 4
 []
 
 [Mesh]
@@ -16,19 +17,7 @@
   []
 []
 
-[Functions]
-  [s]
-    type = ParsedFunction
-    expression = 'sin(x)+sin(y)+z+10*t'
-  []
-[]
-
 [Postprocessors]
-  [temp]
-    type = NekPointValue
-    field = temperature
-    point = '0.25 0.3 0.27'
-  []
   [vx]
     type = NekPointValue
     field = velocity_x
@@ -42,6 +31,12 @@
   [vz]
     type = NekPointValue
     field = velocity_z
+    point = '0.25 0.3 0.27'
+  []
+  [comp]
+    type = NekPointValue
+    field = velocity_component
+    velocity_direction = '0.5 0.5 0.5'
     point = '0.25 0.3 0.27'
   []
   [vx2]
@@ -64,6 +59,11 @@
     field = velocity
     point = '0.25 0.3 0.27'
   []
+  [temp]
+    type = NekPointValue
+    field = temperature
+    point = '0.25 0.3 0.27'
+  []
   [p]
     type = NekPointValue
     field = pressure
@@ -84,22 +84,24 @@
     field = scalar03
     point = '0.25 0.3 0.27'
   []
-  [vc]
+  [unity]
     type = NekPointValue
-    field = velocity_component
-    velocity_direction = '1 1 1'
+    field = unity
     point = '0.25 0.3 0.27'
   []
-  [vx_shift]
+  [usrwrk00]
     type = NekPointValue
-    field = velocity_x
-    function = s
+    field = usrwrk00
     point = '0.25 0.3 0.27'
   []
-  [T_shift]
+  [usrwrk01]
     type = NekPointValue
-    field = temperature
-    function = s
+    field = usrwrk01
+    point = '0.25 0.3 0.27'
+  []
+  [usrwrk02]
+    type = NekPointValue
+    field = usrwrk02
     point = '0.25 0.3 0.27'
   []
 []

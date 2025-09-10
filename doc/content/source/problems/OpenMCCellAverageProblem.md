@@ -141,7 +141,7 @@ Then Cardinal is instead building the following automatically for you:
   [density] # added for all density_blocks
     family = MONOMIAL
     order = CONSTANT
-    blocks = 'water helium'
+    block = 'water helium'
   []
   [heating] # the first tally we added (score is 'heating')
     family = MONOMIAL
@@ -226,7 +226,7 @@ column (not just the volume of the mesh elements the cells map to in the "Mapped
 
 If you know that all the tallied OpenMC cells are actually
 the same volume, you can also use the `check_equal_mapped_tally_volumes`
-parameter to automatically check that the mapped volue for each tally bin is identical.
+parameter to automatically check that the mapped volume for each tally bin is identical.
 
 !alert-end!
 
@@ -340,9 +340,16 @@ by Cardinal. Note that for all area or volume units in [tally_units], that those
 | `kappa_fission` | eV / source particle | W / volume |
 | `fission_q_prompt` | eV / source particle | W / volume |
 | `fission_q_recoverable` | eV / source particle | W / volume |
-| `damage_energy` | eV / source particle | W / volume |
+| `damage_energy` | eV / source particle | eV / volume / second |
 | `flux` | particle - cm / source particle | particle / area / second |
 | `H3_production` | tritium / source particle | tritium / volume / second |
+| `total` | total reactions / source particle | total reactions / volume / second |
+| `absorption` | absorption reactions / source particle | absorption reactions / volume / second |
+| `scatter` | scattering reactions / source particle | scattering reactions / volume / second |
+| `nu_scatter` | nu-scattering reactions / source particle | nu-scattering reactions / volume / second |
+| `fission` | fission reactions / source particle | fission reactions / volume / second |
+| `nu_fission` | nu-fission reactions / source particle | nu-fission reactions / volume / second |
+| `inverse_velocity` | seconds / source particle | particle / volume |
 
 ### Tally Normalization
 
@@ -387,8 +394,8 @@ used in OpenMC.
 
 Cardinal provides UserObjects for editing tallies and filters:
 
-  - [OpenMCTallyEditor](OpenMCTallyEditor.md): online control of tally parameters
-  - [OpenMCDomainFilterEditor](OpenMCDomainFilterEditor.md): online control of domain filter parameters
+- [OpenMCTallyEditor](OpenMCTallyEditor.md): online control of tally parameters
+- [OpenMCDomainFilterEditor](OpenMCDomainFilterEditor.md): online control of domain filter parameters
 
 These objects can be used to interact with tallies and/or filters that are
 present in a `tallies.xml` file for the problem being run (in other words,
@@ -396,6 +403,29 @@ tallies the user manually sets up when building the OpenMC model). These objects
 can be used to create tallies and/or filters as well. In either case, these
 objects do not interact with tallies and filters used to map data to the mesh
 mirror ([#mapped]).
+
+## Neutron Kinetics Parameters
+
+Cardinal exposes the calculation of neutron kinetics parameters in OpenMC with iterated
+fission probabilities. $\Lambda_{eff}$ and $\beta_{eff}$ can be obtained by first setting
+`calc_kinetics_params = true`. The parameters can then be accessed with
+[LambdaEffective](LambdaEffective.md) and [BetaEffective](BetaEffective.md) post-processors
+after the OpenMC simulation finishes. An example of this capability can be found below.
+
+!listing test/tests/neutronics/kinetics/both.i
+  block=Problem
+
+!listing test/tests/neutronics/kinetics/both.i
+  block=Postprocessors
+
+The number of generations tracked to compute these kinetic parameters can be specified by
+setting `ifp_generations`. Note that `ifp_generations` must be less than or equal to the number
+of inactive batches.
+
+!alert note
+The memory cost of a simulation running with iterated fission probabilities scales linearly
+with `ifp_generations` (an extra double and an extra integrer must be tracked per particle
+for each generation). It is recommend that the number of IFP generations be minimized when possible.
 
 ## Other Features
 

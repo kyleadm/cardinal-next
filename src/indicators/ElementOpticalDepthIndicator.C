@@ -43,12 +43,19 @@ ElementOpticalDepthIndicator::validParams()
       "the "
       "minimum vertex separation (min), the maximum vertex separation (max), and the cube root of "
       "the element volume (cube_root).");
+  params.addParam<bool>(
+      "invert",
+      false,
+      "Whether the optical depth is computed as the optical depth (false) or the inverse of the "
+      "optical depth (true).");
 
   return params;
 }
 
 ElementOpticalDepthIndicator::ElementOpticalDepthIndicator(const InputParameters & parameters)
-  : OpenMCIndicator(parameters), _h_type(getParam<MooseEnum>("h_type").getEnum<HType>())
+  : OpenMCIndicator(parameters),
+    _h_type(getParam<MooseEnum>("h_type").getEnum<HType>()),
+    _invert(getParam<bool>("invert"))
 {
   std::string score = getParam<MooseEnum>("rxn_rate");
   std::replace(score.begin(), score.end(), '_', '-');
@@ -61,23 +68,22 @@ ElementOpticalDepthIndicator::ElementOpticalDepthIndicator(const InputParameters
         "At present the ElementOpticalDepthIndicator only works with reaction rate scores. " +
             std::string(getParam<MooseEnum>("rxn_rate")) + " is not a valid reaction rate score.");
 
-  const auto & all_scores = _openmc_problem->getTallyScores();
-  if (std::find(all_scores.begin(), all_scores.end(), score) == all_scores.end())
+  if (!_openmc_problem->hasScore(score))
     paramError("rxn_rate",
                "The problem does not contain any score named " +
                    std::string(getParam<MooseEnum>("rxn_rate")) +
                    "! Please "
                    "ensure that one of your [Tallies] is scoring the requested reaction rate.");
 
-  if (std::find(all_scores.begin(), all_scores.end(), "flux") == all_scores.end())
+  if (!_openmc_problem->hasScore("flux"))
     mooseError("In order to use an ElementOpticalDepthIndicator one of your [Tallies] must add a "
                "flux score.");
 
   // Check to ensure the reaction rate / flux variables are CONSTANT MONOMIALS.
   bool const_mon = true;
-  for (const auto v : getTallyScoreVariables(score))
+  for (const auto v : _openmc_problem->getTallyScoreVariables(score, _tid, "", true))
     const_mon &= v->feType() == FEType(CONSTANT, MONOMIAL);
-  for (const auto v : getTallyScoreVariables("flux"))
+  for (const auto v : _openmc_problem->getTallyScoreVariables("flux", _tid, "", true))
     const_mon &= v->feType() == FEType(CONSTANT, MONOMIAL);
 
   if (!const_mon)
@@ -86,8 +92,8 @@ ElementOpticalDepthIndicator::ElementOpticalDepthIndicator(const InputParameters
                "Please ensure your [Tallies] are adding CONSTANT MONOMIAL field variables.");
 
   // Grab the reaction rate / flux variables from the [Tallies].
-  _rxn_rates = getTallyScoreVariableValues(score);
-  _scalar_fluxes = getTallyScoreVariableValues("flux");
+  _rxn_rates = _openmc_problem->getTallyScoreVariableValues(score, _tid, "", true);
+  _scalar_fluxes = _openmc_problem->getTallyScoreVariableValues("flux", _tid, "", true);
 }
 
 void
@@ -120,7 +126,10 @@ ElementOpticalDepthIndicator::computeIndicator()
       break;
   }
 
-  _field_var.setNodalValue(od);
+  if (_invert && od > libMesh::TOLERANCE)
+    _field_var.setNodalValue(1.0 / od);
+  else
+    _field_var.setNodalValue(od);
 }
 
 #endif

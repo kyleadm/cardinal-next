@@ -19,8 +19,16 @@
 #ifdef ENABLE_OPENMC_COUPLING
 
 #include "OpenMCProblemBase.h"
+
 #include "CardinalAppTypes.h"
 #include "AddTallyAction.h"
+#include "SetupMGXSAction.h"
+
+#include "OpenMCNuclideDensities.h"
+#include "OpenMCDomainFilterEditor.h"
+#include "OpenMCTallyEditor.h"
+
+#include "openmc/random_lcg.h"
 
 InputParameters
 OpenMCProblemBase::validParams()
@@ -52,10 +60,10 @@ OpenMCProblemBase::validParams()
       "inactive_batches",
       "inactive_batches >= 0",
       "Number of inactive batches to run in OpenMC; this overrides the setting in the XML files.");
-  params.addRangeCheckedParam<int>("particles",
-                                   "particles > 0 ",
-                                   "Number of particles to run in each OpenMC batch; this "
-                                   "overrides the setting in the XML files.");
+  params.addRangeCheckedParam<unsigned int>("particles",
+                                            "particles > 0 ",
+                                            "Number of particles to run in each OpenMC batch; this "
+                                            "overrides the setting in the XML files.");
   params.addRangeCheckedParam<unsigned int>(
       "batches",
       "batches > 0",
@@ -70,6 +78,21 @@ OpenMCProblemBase::validParams()
       false,
       "Whether to skip writing any statepoint files from OpenMC; this is a performance "
       "optimization for scenarios where you may not want the statepoint files anyways");
+  params.addParam<bool>(
+      "reset_seed",
+      false,
+      "Whether to reset OpenMC's seed to the initial starting seed before each OpenMC solve");
+
+  // Kinetics parameters.
+  params.addParam<bool>("calc_kinetics_params",
+                        false,
+                        "Whether or not Cardinal should enable the calculation of kinetics "
+                        "parameters (Lambda effective and beta effective).");
+  params.addParam<unsigned int>(
+      "ifp_generations",
+      openmc::DEFAULT_IFP_N_GENERATION,
+      "The number of generations to use with the method of iterated fission probabilities.");
+
   return params;
 }
 
@@ -82,7 +105,12 @@ OpenMCProblemBase::OpenMCProblemBase(const InputParameters & params)
     _scaling(getParam<Real>("scaling")),
     _skip_statepoint(getParam<bool>("skip_statepoint")),
     _fixed_point_iteration(-1),
-    _total_n_particles(0)
+    _total_n_particles(0),
+    _has_adaptivity(getMooseApp().actionWarehouse().hasActions("set_adaptivity_options")),
+    _run_on_adaptivity_cycle(true),
+    _calc_kinetics_params(getParam<bool>("calc_kinetics_params")),
+    _reset_seed(getParam<bool>("reset_seed")),
+    _initial_seed(openmc::openmc_get_seed())
 {
   if (isParamValid("tally_type"))
     mooseError("The tally system used by OpenMCProblemBase derived classes has been deprecated. "
@@ -107,12 +135,13 @@ OpenMCProblemBase::OpenMCProblemBase(const InputParameters & params)
   // necessary/unused input parameters for the valid run modes
   _run_mode = openmc::settings::run_mode;
   const auto & tally_actions = getMooseApp().actionWarehouse().getActions<AddTallyAction>();
+  const auto & mgxs_actions = getMooseApp().actionWarehouse().getActions<SetupMGXSAction>();
   switch (_run_mode)
   {
     case openmc::RunMode::EIGENVALUE:
     {
       // Jumping through hoops to see if we're going to add tallies down the line.
-      if (tally_actions.size() > 0)
+      if (tally_actions.size() > 0 || mgxs_actions.size() > 0)
       {
         checkRequiredParam(params, "power", "running in k-eigenvalue mode");
         _power = &getPostprocessorValue("power");
@@ -125,7 +154,7 @@ OpenMCProblemBase::OpenMCProblemBase(const InputParameters & params)
     }
     case openmc::RunMode::FIXED_SOURCE:
     {
-      if (tally_actions.size() > 0)
+      if (tally_actions.size() > 0 || mgxs_actions.size() > 0)
       {
         checkRequiredParam(params, "source_strength", "running in fixed source mode");
         _source_strength = &getPostprocessorValue("source_strength");
@@ -156,15 +185,6 @@ OpenMCProblemBase::OpenMCProblemBase(const InputParameters & params)
 
   openmc::settings::libmesh_comm = &_mesh.comm();
 
-  if (openmc::settings::temperature_range[1] == 0.0)
-    mooseWarning(
-        "For multiphysics simulations, we recommend setting the 'temperature_range' in OpenMC's "
-        "settings.xml file. This will pre-load nuclear data over a range of temperatures, instead "
-        "of only the temperatures defined in the XML file.\n\n"
-        "For efficiency purposes, OpenMC only checks that cell temperatures are within the global "
-        "min/max of loaded data, which can be different from data loaded for each nuclide. Run may "
-        "abort suddenly if requested nuclear data is not available.");
-
   if (isParamValid("openmc_verbosity"))
     openmc::settings::verbosity = getParam<unsigned int>("openmc_verbosity");
 
@@ -172,7 +192,7 @@ OpenMCProblemBase::OpenMCProblemBase(const InputParameters & params)
     openmc::settings::n_inactive = getParam<unsigned int>("inactive_batches");
 
   if (isParamValid("particles"))
-    openmc::settings::n_particles = getParam<int>("particles");
+    openmc::settings::n_particles = getParam<unsigned int>("particles");
 
   if (isParamValid("batches"))
   {
@@ -192,6 +212,22 @@ OpenMCProblemBase::OpenMCProblemBase(const InputParameters & params)
   // The OpenMC wrapping doesn't require material properties itself, but we might
   // define them on some blocks of the domain for other auxiliary kernel purposes
   setMaterialCoverageCheck(false);
+
+  // If the user requests kinetics parameters, make sure it's enabled in OpenMC.
+  if (_calc_kinetics_params)
+  {
+    if (_run_mode != openmc::RunMode::EIGENVALUE)
+      paramError("calc_kinetics_params",
+                 "Kinetic parameters can only be calculated in k-eigenvalue mode!");
+
+    openmc::settings::ifp_on = true;
+    openmc::settings::ifp_parameter = openmc::IFPParameter::Both;
+
+    openmc::settings::ifp_n_generation = getParam<unsigned int>("ifp_generations");
+    if (openmc::settings::ifp_n_generation > openmc::settings::n_inactive)
+      paramError("ifp_generations",
+                 "'ifp_generations' must be less than or equal to the number of inactive batches!");
+  }
 }
 
 OpenMCProblemBase::~OpenMCProblemBase() { openmc_finalize(); }
@@ -301,6 +337,15 @@ void
 OpenMCProblemBase::externalSolve()
 {
   TIME_SECTION("solveOpenMC", 1, "Solving OpenMC", false);
+
+  // Check to see if this is a steady solve. If so, we can skip extra OpenMC runs
+  // once the mesh stops getting adapted.
+  if (_has_adaptivity && !_run_on_adaptivity_cycle)
+  {
+    _console << " Skipping running OpenMC as the mesh has not changed!" << std::endl;
+    return;
+  }
+
   _console << " Running OpenMC with " << nParticles() << " particles per batch..." << std::endl;
 
   // apply a new starting fission source
@@ -314,6 +359,12 @@ OpenMCProblemBase::externalSolve()
   // update tallies as needed before starting the OpenMC run
   executeEditors();
 
+  if (_reset_seed)
+  {
+    openmc_hard_reset();
+    openmc_set_seed(_initial_seed);
+  }
+
   int err = openmc_run();
   if (err)
     mooseError(openmc_err_msg);
@@ -324,11 +375,41 @@ OpenMCProblemBase::externalSolve()
   if (err)
     mooseError(openmc_err_msg);
 
-  _fixed_point_iteration += 1;
+  _fixed_point_iteration++;
 
   // save the latest fission source for re-use in the next iteration
   if (_reuse_source)
     writeSourceBank(sourceBankFileName());
+}
+
+void
+OpenMCProblemBase::initialSetup()
+{
+  ExternalProblem::initialSetup();
+
+  // Initialize the IFP parameters tally.
+  if (_calc_kinetics_params)
+  {
+    _ifp_tally_index = openmc::model::tallies.size();
+    _ifp_tally = openmc::Tally::create();
+    _ifp_tally->set_scores({"ifp-time-numerator", "ifp-beta-numerator", "ifp-denominator"});
+    _ifp_tally->estimator_ = openmc::TallyEstimator::COLLISION;
+  }
+}
+
+void
+OpenMCProblemBase::syncSolutions(ExternalProblem::Direction direction)
+{
+  // Always run OpenMC on the first timestep in a steady solve with adaptivity. This
+  // ensures that OpenMC runs at least once during each Picard iteration.
+  _run_on_adaptivity_cycle |= (timeStep() == 1 && !isTransient());
+}
+
+bool
+OpenMCProblemBase::adaptMesh()
+{
+  _run_on_adaptivity_cycle = CardinalProblem::adaptMesh() || isTransient();
+  return _run_on_adaptivity_cycle;
 }
 
 void
@@ -381,7 +462,7 @@ OpenMCProblemBase::isLocalElem(const Elem * elem) const
 bool
 OpenMCProblemBase::cellHasZeroInstances(const cellInfo & cell_info) const
 {
-  auto n = openmc::model::cells.at(cell_info.first)->n_instances_;
+  auto n = openmc::model::cells.at(cell_info.first)->n_instances();
   return !n;
 }
 
@@ -464,8 +545,11 @@ OpenMCProblemBase::setCellDensity(const Real & density, const cellInfo & cell_in
   // throw a special error if the cell is void, because the OpenMC error isn't very
   // clear what the mistake is
   if (material_index == MATERIAL_VOID)
-    mooseError("Cannot set density for cell " + printCell(cell_info) +
-               " because this cell is void (vacuum)!");
+  {
+    mooseWarning("Skipping setting density for cell " + printCell(cell_info) +
+                 " because this cell is void (vacuum)");
+    return;
+  }
 
   // Multiply density by 0.001 to convert from kg/m3 (the units assumed in the 'density'
   // auxvariable as well as the MOOSE fluid properties module) to g/cm3
@@ -501,7 +585,7 @@ OpenMCProblemBase::printCell(const cellInfo & cell_info, const bool brief) const
   msg << std::setw(_n_cell_digits) << Moose::stringify(id) << ", instance "
       << std::setw(_n_cell_digits) << Moose::stringify(cell_info.second) << " (of "
       << std::setw(_n_cell_digits)
-      << Moose::stringify(openmc::model::cells.at(cell_info.first)->n_instances_) << ")";
+      << Moose::stringify(openmc::model::cells.at(cell_info.first)->n_instances()) << ")";
 
   return msg.str();
 }
@@ -690,28 +774,33 @@ OpenMCProblemBase::numCells() const
 {
   long unsigned int n_openmc_cells = 0;
   for (const auto & c : openmc::model::cells)
-    n_openmc_cells += c->n_instances_;
+    n_openmc_cells += c->n_instances();
 
   return n_openmc_cells;
+}
+
+const openmc::Tally &
+OpenMCProblemBase::getKineticsParamTally()
+{
+  if (!_ifp_tally)
+    mooseError("Internal error: kinetics parameters have not been enabled.");
+
+  return *_ifp_tally;
 }
 
 bool
 OpenMCProblemBase::isReactionRateScore(const std::string & score) const
 {
   const std::set<std::string> viable_scores = {
-      "H3-production", "total", "absorption", "scatter", "fission"};
+      "H3-production", "total", "absorption", "scatter", "nu-scatter", "fission", "nu-fission"};
   return viable_scores.count(score);
 }
 
 bool
 OpenMCProblemBase::isHeatingScore(const std::string & score) const
 {
-  const std::set<std::string> viable_scores = {"heating",
-                                               "heating-local",
-                                               "kappa-fission",
-                                               "fission-q-prompt",
-                                               "fission-q-recoverable",
-                                               "damage-energy"};
+  const std::set<std::string> viable_scores = {
+      "heating", "heating-local", "kappa-fission", "fission-q-prompt", "fission-q-recoverable"};
   return viable_scores.count(score);
 }
 
@@ -806,20 +895,18 @@ void
 OpenMCProblemBase::executeFilterEditors()
 {
   executeControls(EXEC_FILTER_EDITORS);
-  _console << "Executing filter editors...";
+  _console << "Executing filter editors..." << std::endl;
   for (const auto & fe : _filter_editor_uos)
     fe->execute();
-  _console << "done" << std::endl;
 }
 
 void
 OpenMCProblemBase::executeTallyEditors()
 {
   executeControls(EXEC_TALLY_EDITORS);
-  _console << "Executing tally editors...";
+  _console << "Executing tally editors..." << std::endl;
   for (const auto & te : _tally_editor_uos)
     te->execute();
-  _console << "done" << std::endl;
 }
 
 void
@@ -841,7 +928,6 @@ OpenMCProblemBase::sendNuclideDensitiesToOpenMC()
   _console << "Sending nuclide compositions to OpenMC... ";
   for (const auto & uo : _nuclide_densities_uos)
     uo->setValue();
-  _console << "done" << std::endl;
 }
 
 #endif

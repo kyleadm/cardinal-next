@@ -39,7 +39,7 @@ getNekOrderEnum()
 MooseEnum
 getBinnedVelocityComponentEnum()
 {
-  return MooseEnum("normal user");
+  return MooseEnum("normal user", "user");
 }
 
 MooseEnum
@@ -47,7 +47,7 @@ getNekFieldEnum()
 {
   return MooseEnum("velocity_x velocity_y velocity_z velocity velocity_component "
                    "velocity_x_squared velocity_y_squared velocity_z_squared temperature pressure "
-                   "scalar01 scalar02 scalar03 unity");
+                   "scalar01 scalar02 scalar03 unity usrwrk00 usrwrk01 usrwrk02");
 }
 
 MooseEnum
@@ -59,7 +59,7 @@ getOperationEnum()
 MooseEnum
 getTallyTypeEnum()
 {
-  return MooseEnum("cell mesh none");
+  return MooseEnum("cell mesh");
 }
 
 MooseEnum
@@ -97,7 +97,13 @@ getTallyScoreEnum()
 {
   return MultiMooseEnum(
       "heating heating_local kappa_fission fission_q_prompt fission_q_recoverable damage_energy "
-      "flux H3_production total absorption scatter fission");
+      "flux H3_production total absorption scatter nu_scatter fission nu_fission inverse_velocity");
+}
+
+MultiMooseEnum
+getParticleFilterEnums()
+{
+  return MultiMooseEnum("neutron photon electron positron");
 }
 
 MooseEnum
@@ -105,7 +111,13 @@ getSingleTallyScoreEnum()
 {
   return MooseEnum(
       "heating heating_local kappa_fission fission_q_prompt fission_q_recoverable damage_energy "
-      "flux H3_production total absorption scatter fission");
+      "flux H3_production total absorption scatter nu_scatter fission nu_fission inverse_velocity");
+}
+
+MooseEnum
+getSingleParticleFilterEnum()
+{
+  return MooseEnum("neutron photon electron positron");
 }
 
 MooseEnum
@@ -121,4 +133,10 @@ MooseEnum
 getFilterTypeEnum()
 {
   return MooseEnum("cell material universe mesh none", "none");
+}
+
+MooseEnum
+getStatsOutputEnum()
+{
+  return MooseEnum("mean std_dev rel_err", "mean");
 }

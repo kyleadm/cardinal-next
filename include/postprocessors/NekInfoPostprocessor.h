@@ -18,26 +18,26 @@
 
 #pragma once
 
-#include "NekPostprocessor.h"
+#include "GeneralPostprocessor.h"
+#include "NekFieldInterface.h"
+#include "NekBase.h"
+#include "CardinalEnums.h"
 
 /**
- * This postprocessor is used to extract running information of NekRS results,
- * like number of iteration in velocity solver, CFL, etc.
+ * Base class for NekRS postprocessors that operate on fields,
+ * such as for taking averages of a field variable.
  */
-class NekInfoPostprocessor : public NekPostprocessor
+class NekFieldPostprocessor : public GeneralPostprocessor, public NekBase, public NekFieldInterface
 {
 public:
-  NekInfoPostprocessor(const InputParameters & parameters);
-
   static InputParameters validParams();
+
+  NekFieldPostprocessor(const InputParameters & parameters);
 
   virtual void initialize() override {}
   virtual void execute() override {}
 
-  virtual Real getValue() const override;
-
-private:
-  /// Type of value to compute
-  const MooseEnum _test_type;
+protected:
+  /// Which NekRS mesh to act on
+  const nek_mesh::NekMeshEnum _pp_mesh;
 };
-

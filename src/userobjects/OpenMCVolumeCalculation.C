@@ -27,7 +27,8 @@ registerMooseObject("CardinalApp", OpenMCVolumeCalculation);
 InputParameters
 OpenMCVolumeCalculation::validParams()
 {
-  InputParameters params = OpenMCUserObject::validParams();
+  InputParameters params = GeneralUserObject::validParams();
+  params += OpenMCBase::validParams();
   params.addParam<Point>("lower_left", "Lower left of the bounding box inside of which to "
     "compute volumes. If not specified, this will default to the lower left of the [Mesh] "
     "(which will NOT capture any OpenMC geometry that lies outside the [Mesh] extents.");
@@ -47,7 +48,8 @@ OpenMCVolumeCalculation::validParams()
 }
 
 OpenMCVolumeCalculation::OpenMCVolumeCalculation(const InputParameters & parameters)
-  : OpenMCUserObject(parameters),
+  : GeneralUserObject(parameters),
+    OpenMCBase(this, parameters),
     _n_samples(getParam<unsigned int>("n_samples")),
     _trigger(getParam<MooseEnum>("trigger"))
 {
@@ -61,31 +63,13 @@ OpenMCVolumeCalculation::OpenMCVolumeCalculation(const InputParameters & paramet
   else
     mooseError("Unhandled trigger enum in OpenMCCellVolumeCalculation!");
 
-  auto openmc_problem = openmcProblem();
-  _scaling = openmc_problem->scaling();
+  _scaling = _openmc_problem->scaling();
 
-  BoundingBox box = MeshTools::create_bounding_box(_fe_problem.mesh());
-  _lower_left = isParamValid("lower_left") ? getParam<Point>("lower_left") : box.min();
-  _upper_right = isParamValid("upper_right") ? getParam<Point>("upper_right") : box.max();
-
-  if (_lower_left >= _upper_right)
-    paramError("upper_right",
-               "The 'upper_right' (",
-               _upper_right(0),
-               ", ",
-               _upper_right(1),
-               ", ",
-               _upper_right(2),
-               ") "
-               "must be greater than the 'lower_left' (",
-               _lower_left(0),
-               ", ",
-               _lower_left(1),
-               ", ",
-               _lower_left(2),
-               ")!");
+  if (isParamValid("lower_left"))
+    _lower_left = getParam<Point>("lower_left");
+  if (isParamValid("upper_right"))
+    _upper_right = getParam<Point>("upper_right");
 }
-
 openmc::Position
 OpenMCVolumeCalculation::position(const Point & pt) const
 {
@@ -103,7 +87,29 @@ OpenMCVolumeCalculation::resetVolumeCalculation()
 void
 OpenMCVolumeCalculation::initializeVolumeCalculation()
 {
-  auto openmc_problem = dynamic_cast<const OpenMCCellAverageProblem *>(&_fe_problem);
+
+  BoundingBox box = MeshTools::create_bounding_box(_openmc_problem->getMooseMesh().getMesh());
+
+  if (!isParamValid("lower_left"))
+    _lower_left = box.min();
+  if (!isParamValid("upper_right"))
+    _upper_right = box.max();
+  if (_lower_left >= _upper_right)
+    paramError("upper_right",
+               "The 'upper_right' (",
+               _upper_right(0),
+               ", ",
+               _upper_right(1),
+               ", ",
+               _upper_right(2),
+               ") "
+               "must be greater than the 'lower_left' (",
+               _lower_left(0),
+               ", ",
+               _lower_left(1),
+               ", ",
+               _lower_left(2),
+               ")!");
 
   _volume_calc.reset(new openmc::VolumeCalculation());
   _volume_calc->domain_type_ = openmc::VolumeCalculation::TallyDomain::CELL;
@@ -117,7 +123,7 @@ OpenMCVolumeCalculation::initializeVolumeCalculation()
     _volume_calc->trigger_type_ = openmc::TriggerMetric::relative_error;
   }
 
-  auto cell_to_elem = openmc_problem->cellToElem();
+  auto cell_to_elem = _openmc_problem->cellToElem();
 
   std::set<int> ids;
   _index_to_calc_index.clear();
@@ -144,14 +150,13 @@ OpenMCVolumeCalculation::computeVolumes()
 {
   _console << "Running stochastic volume calculation... ";
   _results = _volume_calc->execute();
-  _console << "done" << std::endl;
 }
 
 void
 OpenMCVolumeCalculation::cellVolume(const unsigned int & index, Real & volume, Real & std_dev) const
 {
   auto calc_index = _index_to_calc_index.at(index);
-  auto n_instances = openmc::model::cells[index]->n_instances_;
+  auto n_instances = openmc::model::cells[index]->n_instances();
   if (n_instances > 1)
     mooseDoOnce(mooseWarning(
         "OpenMC's stochastic volume calculation cannot individually measure volumes of cell "

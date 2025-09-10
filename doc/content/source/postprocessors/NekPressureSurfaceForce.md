@@ -9,8 +9,11 @@ stress tensor over a boundary, multiplied by negative 1 in order to compute
 the force that the fluid exerts ON the boundary,
 
 \begin{equation}
-r_i=&\ -\int_{\Gamma}-Pn_i\ d\Gamma\\
+\begin{aligned}
+r_i=&\ -\int_{\Gamma}-P\delta_{ij}n_j\ d\Gamma\\
+=&\ -\int_{\Gamma}-Pn_i\ d\Gamma\\
 =&\ \int_{\Gamma}Pn_i\ d\Gamma\\
+\end{aligned}
 \end{equation}
 
 where $\Gamma$ is the boundary of the NekRS mesh and
@@ -20,10 +23,15 @@ $z$ component, or magnitude of this force.
 
 !include /boundary_specs.md
 
-If running NekRS in non-dimensional form (and you have indicated the
-appropriate nondimensional scales by setting `nondimensional = true`,
-for the `[Problem]`, then the value of this postprocessor is shown
-in *dimensional* units.
+!include /nondimensional.md
+
+!alert tip
+This postprocessor computes the stress integrated over a surface (i.e. a force).
+If you instead want the pointwise pressure on the surface, you can add a
+[NekFieldVariable](NekFieldVariable.md) in order to write NekRS's pressure
+into an [AuxVariable](AuxVariables/index.md). You can then use this pointwise pressure
+as a pointwise force boundary condition in each momentum conservation equation
+using three [CoupledPressureBC.md](CoupledPressureBC.md) objects.
 
 ## Example Input Syntax
 

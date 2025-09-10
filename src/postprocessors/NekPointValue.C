@@ -26,8 +26,7 @@ registerMooseObject("CardinalApp", NekPointValue);
 InputParameters
 NekPointValue::validParams()
 {
-  InputParameters params = NekFieldInterface::validParams();
-  params += NekPostprocessor::validParams();
+  InputParameters params = NekFieldPostprocessor::validParams();
   params.addRequiredParam<Point>("point", "The physical point where the field will be evaluated");
   params.addClassDescription("Uses NekRS's pointInterpolation to query the NekRS solution at a "
                              "point (does not need to be a grid point).");
@@ -35,26 +34,16 @@ NekPointValue::validParams()
 }
 
 NekPointValue::NekPointValue(const InputParameters & parameters)
-  : NekPostprocessor(parameters),
-    NekFieldInterface(this, parameters),
-    _point(getParam<Point>("point")),
-    _value(0)
+  : NekFieldPostprocessor(parameters), _point(getParam<Point>("point")), _value(0)
 {
 }
 
 void
 NekPointValue::execute()
 {
-  // if there is a shifting function, evaluate that function
-  auto shift = evaluateShiftFunction(_t, _point);
-
-  // the input functions are dimensional quantities; first, need to transform
-  // them into non-dimensional form before NekRS evaluates them
-  auto p = _point / nekrs::referenceLength();
-
-  std::vector<dfloat> x = {p(0)};
-  std::vector<dfloat> y = {p(1)};
-  std::vector<dfloat> z = {p(2)};
+  std::vector<dfloat> x = {_point(0) / nekrs::referenceLength()};
+  std::vector<dfloat> y = {_point(1) / nekrs::referenceLength()};
+  std::vector<dfloat> z = {_point(2) / nekrs::referenceLength()};
   int n = x.size();
 
   nrs_t * nrs = (nrs_t *)nekrs::nrsPtr();
@@ -66,11 +55,22 @@ NekPointValue::execute()
   const auto verbosity = pointInterpolation_t::VerbosityLevel::Basic;
   interp.find(verbosity);
 
+  // if this slot is not used for coupling, we are responsible for copying it to
+  // device before calling the interp function. Otherwise, Cardinal handles copying
+  // to device automatically.
+  if (_field == field::usrwrk00 && !_nek_problem->isUsrWrkSlotReservedForCoupling(0))
+    _nek_problem->copyIndividualScratchSlot(0);
+  if (_field == field::usrwrk01 && !_nek_problem->isUsrWrkSlotReservedForCoupling(1))
+    _nek_problem->copyIndividualScratchSlot(1);
+  if (_field == field::usrwrk02 && !_nek_problem->isUsrWrkSlotReservedForCoupling(2))
+    _nek_problem->copyIndividualScratchSlot(2);
+
   // interpolate the field onto those points
   occa::memory o_interpolated;
   int n_values = n;
   switch (_field)
   {
+    case field::velocity_component:
     case field::velocity_x:
     case field::velocity_y:
     case field::velocity_z:
@@ -78,7 +78,6 @@ NekPointValue::execute()
     case field::velocity_x_squared:
     case field::velocity_y_squared:
     case field::velocity_z_squared:
-    case field::velocity_component:
       n_values = n * nrs->NVfields;
       o_interpolated = platform->device.malloc<dfloat>(n_values);
       interp.eval(n_values, nrs->fieldOffset, nrs->cds->o_U, n, o_interpolated);
@@ -93,10 +92,16 @@ NekPointValue::execute()
     case field::scalar03:
       n_values = n * nrs->Nscalar;
       o_interpolated = platform->device.malloc<dfloat>(n_values);
-      interp.eval(n_values, nrs->fieldOffset, nrs->cds->o_S, n, o_interpolated);
+      interp.eval(n_values, nekrs::scalarFieldOffset(), nrs->cds->o_S, n, o_interpolated);
       break;
     case field::unity:
-      _value = 1;
+      break;
+    case field::usrwrk00:
+    case field::usrwrk01:
+    case field::usrwrk02:
+      n_values = n * _nek_problem->nUsrWrkSlots();
+      o_interpolated = platform->device.malloc<dfloat>(n_values);
+      interp.eval(n_values, nekrs::fieldOffset(), nrs->o_usrwrk, n, o_interpolated);
       break;
     default:
       mooseError("Unhandled NekFieldEnum in NekPointValue!");
@@ -110,6 +115,10 @@ NekPointValue::execute()
   // return what the user wants
   switch (_field)
   {
+    case field::velocity_component:
+      _value = interpolated[0] * _velocity_direction(0) + interpolated[1] * _velocity_direction(1) +
+               interpolated[2] * _velocity_direction(2);
+      break;
     case field::velocity_x:
       _value = interpolated[0];
       break;
@@ -132,10 +141,6 @@ NekPointValue::execute()
     case field::velocity_z_squared:
       _value = interpolated[2] * interpolated[2];
       break;
-    case field::velocity_component:
-      _value = interpolated[0] * _velocity_direction(0) + interpolated[1] * _velocity_direction(1) +
-               interpolated[2] * _velocity_direction(2);
-      break;
     case field::pressure:
       _value = interpolated[0];
       break;
@@ -152,17 +157,22 @@ NekPointValue::execute()
       _value = interpolated[3];
       break;
     case field::unity:
+      _value = 1;
+      break;
+    case field::usrwrk00:
+      _value = interpolated[0];
+      break;
+    case field::usrwrk01:
+      _value = interpolated[1];
+      break;
+    case field::usrwrk02:
+      _value = interpolated[2];
       break;
     default:
       mooseError("Unhandled NekFieldEnum in NekPointValue!");
   }
 
-  _value -= shift;
-  nekrs::dimensionalize(_field, _value);
-
-  // need to add the temperature shift, if field is temperature
-  if (_field == field::temperature)
-    _value += nekrs::referenceTemperature();
+  _value = _value * nekrs::nondimensionalDivisor(_field) + nekrs::nondimensionalAdditive(_field);
 }
 
 Real
