@@ -548,7 +548,9 @@ copySolutionToHost()
   mesh_t * mesh = entireMesh();
   nrs->fluid->o_U.copyTo(U.data(),U.size());
   nrs->fluid->o_P.copyTo(P.data(),P.size());
-  nrs->scalar->o_S.copyTo(S.data(),S.size());
+  if (nrs->scalar && nrs->scalar->NSfields > 0) {
+    nrs->scalar->o_S.copyTo(S.data(),S.size());
+  }
 }
 
 void
@@ -1484,7 +1486,6 @@ checkFieldValidity(const field::NekFieldEnum & field)
 
   // TODO: would be nice for NekRSProblem to only access field information via the
   // NekFieldInterface; refactor later
-
   switch (field)
   {
     case field::temperature:
@@ -1819,7 +1820,9 @@ initializeNekHostArrays()
 
   U.resize(mesh->dim * nrs->fluid->fieldOffset);
   P.resize(mesh->Nlocal);
-  S.resize(nrs->scalar->NSfields * nrs->scalar->fieldOffset()); // offset is same for all scalars
+  if (nrs->scalar && nrs->scalar->NSfields > 0) {
+    S.resize(nrs->scalar->NSfields * nrs->scalar->fieldOffset()); // offset is same for all scalars
+  }
 }
 
 dfloat *

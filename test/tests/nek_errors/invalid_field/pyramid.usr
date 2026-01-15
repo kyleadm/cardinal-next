@@ -1,0 +1,24 @@
+      subroutine usrdat3
+      include "SIZE"
+      include "TOTAL"
+
+      integer bid
+
+      do ie=1,nelt
+        do ifc=1,2*ndim
+          if (cbc(ifc,ie,1).eq.'EXO') then
+            bid = bc(5,ifc,ie,1)
+            if (bid .eq. 1) then
+              cbc(ifc,ie,1) = 'v  '   ! inlet
+            elseif (bid .eq. 2) then
+              cbc(ifc,ie,1) = 'O  '   ! outlet
+            elseif (bid .ge. 3 .and. bid .le. 8) then
+              cbc(ifc,ie,1) = 'W  '   ! wall
+            endif
+            boundaryID(ifc,ie)  = bid
+          endif
+        enddo
+      enddo
+
+      return
+      end
