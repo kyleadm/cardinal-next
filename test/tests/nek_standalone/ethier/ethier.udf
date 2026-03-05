@@ -150,39 +150,40 @@ void grad_u(dfloat *grad_u_x,
   }
 }
 
-void velocityDirichletConditions(bcData *bc)
+void udfDirichlet(bcData *bc)
 {
-  dfloat u, v, w, p;
-  exact(&u, &v, &w, &p, bc->x, bc->y, bc->z, bc->time, p_nu);
-  bc->u = u;
-  bc->v = v;
-  bc->w = w;
+  if (isField("fluid velocity")) {
+    dfloat u, v, w, p;
+    exact(&u, &v, &w, &p, bc->x, bc->y, bc->z, bc->time, p_nu);
+    bc->uxFluid = u;
+    bc->uyFluid = v;
+    bc->uzFluid = w;
+  } else if (isField("scalar temperature")) {
+    dfloat u, v, w, p;
+    exact(&u, &v, &w, &p, bc->x, bc->y, bc->z, bc->time, p_nu);
+    bc->sScalar = u;
+  }
 }
 
-void scalarDirichletConditions(bcData *bc)
+void udfNeumann(bcData *bc)
 {
-  dfloat u, v, w, p;
-  exact(&u, &v, &w, &p, bc->x, bc->y, bc->z, bc->time, p_nu);
-  bc->s = u;
-}
-
-void scalarNeumannConditions(bcData *bc)
-{
-  dfloat grad_u_x, grad_u_y, grad_u_z;
-  grad_u(&grad_u_x, &grad_u_y, &grad_u_z, bc->x, bc->y, bc->z, bc->time, p_nu);
-  bc->flux = p_nu * (grad_u_x * bc->nx + grad_u_y * bc->ny + grad_u_z * bc->nz);
+  if (isField("scalar temperature")) {
+    dfloat grad_u_x, grad_u_y, grad_u_z;
+    grad_u(&grad_u_x, &grad_u_y, &grad_u_z, bc->x, bc->y, bc->z, bc->time, p_nu);
+    bc->fluxScalar = p_nu * (grad_u_x * bc->nx + grad_u_y * bc->ny + grad_u_z * bc->nz);
+  }
 }
 
 #endif
 
-void userq(nrs_t *nrs, double time, occa::memory o_S, occa::memory o_FS)
+void userq(double time)
 {
-  mesh_t *mesh = nrs->meshV;
-  cds_t *cds = nrs->cds;
-  const dlong Nlocal = nrs->meshV->Nelements * nrs->meshV->Np;
+  auto mesh = nrs->meshV;
+  auto &scalar = nrs->scalar;
+  const dlong Nlocal = mesh->Nelements * mesh->Np;
 
-  dpdx(Nlocal, time, mesh->o_x, mesh->o_y, mesh->o_z, 0 * cds->fieldOffset[0], o_FS);
-  dpdx(Nlocal, time, mesh->o_x, mesh->o_y, mesh->o_z, 1 * cds->fieldOffset[0], o_FS);
+  dpdx(Nlocal, time, mesh->o_x, mesh->o_y, mesh->o_z, 0 * scalar->fieldOffset(), scalar->o_EXT);
+  dpdx(Nlocal, time, mesh->o_x, mesh->o_y, mesh->o_z, 1 * scalar->fieldOffset(), scalar->o_EXT);
 }
 
 void UDF_LoadKernels(occa::properties &kernelInfo)
@@ -205,18 +206,18 @@ void UDF_LoadKernels(occa::properties &kernelInfo)
 
 void UDF_Setup()
 {
-  udf.sEqnSource = &userq;
+  nrs->userSource = &userq;
 }
 
-void UDF_ExecuteStep(nrs_t *nrs, double time, int tstep)
+void UDF_ExecuteStep(double time, int tstep)
 {
-  mesh_t *mesh = nrs->meshV;
-  cds_t *cds = nrs->cds;
+  auto mesh = nrs->meshV;
+  auto &scalar = nrs->scalar;
 
   if (tstep <= 5) {
-    exactUVWP(mesh->Nlocal, time, mesh->o_x, mesh->o_y, mesh->o_z, nrs->fieldOffset, nrs->o_P, nrs->o_U);
-    ellipticZeroMean(nrs->pSolver, nrs->o_P);
-    cds->o_S.copyFrom(nrs->o_U, mesh->Nlocal, 0 * cds->fieldOffset[0]);
-    cds->o_S.copyFrom(nrs->o_U, mesh->Nlocal, 1 * cds->fieldOffset[0]);
+    exactUVWP(mesh->Nlocal, time, mesh->o_x, mesh->o_y, mesh->o_z, nrs->fieldOffset, nrs->fluid->o_P, nrs->fluid->o_U);
+    removeMean(nrs->fluid->ellipticSolverP, nrs->fluid->o_P);
+    scalar->o_S.copyFrom(nrs->fluid->o_U, mesh->Nlocal, 0 * scalar->fieldOffset());
+    scalar->o_S.copyFrom(nrs->fluid->o_U, mesh->Nlocal, 1 * scalar->fieldOffset());
   }
 }
