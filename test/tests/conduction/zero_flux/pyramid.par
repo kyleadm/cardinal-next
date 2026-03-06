@@ -6,15 +6,12 @@
   numSteps = 2
   dt = 1.0
   polynomialOrder = 5
-  writeControl = steps
-  writeInterval = 1
+  checkpointControl = steps
+  checkpointInterval = 1
   scalars = temperature
 
 [FLUID VELOCITY]
-  #solver = none    # fluid must be solved to read in bIDs
-  boundaryTypeMap = w,w,w,w,w,w,w,w
-  rho = 1.0
-  viscosity = -100
+  solver = none    # fluid must be solved to read in bIDs
 
 [FLUID PRESSURE]
 

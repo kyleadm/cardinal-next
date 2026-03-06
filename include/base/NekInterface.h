@@ -47,6 +47,12 @@ namespace nekrs
 
 static int build_only;
 
+/**
+ * Number of passive scalars
+ * @return number of passive scalars
+ */
+int Nscalar();
+
 /// Allocate memory for the host mesh parameters
 void initializeHostMeshParameters();
 
@@ -134,7 +140,7 @@ bool isInitialized();
  * @param[in] step time step index
  * @param[in] write_coords whether to write the mesh coordinates
  */
-void write_usrwrk_field_file(const int & slot, const std::string & prefix, const dfloat & time, const int & step, const bool & write_coords);
+void write_usrwrk_field_file(const int & size, const int & index, const int & slot, const std::string & prefix, const dfloat & time, const int & step, const bool & write_coords);
 
 /**
  * Write a field file containing pressure, velocity, and scalars with given prefix

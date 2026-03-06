@@ -78,36 +78,88 @@ setStartTime(const double & start)
 }
 
 void
-write_usrwrk_field_file(const int & slot, const std::string & prefix, const dfloat & time, const int & step, const bool & write_coords)
+write_usrwrk_field_file(const int & usrWriterSize, const int & usrWriterIndex, const int & slot, const std::string & prefix, const dfloat & time, const int & step, const bool & write_coords)
 {
-  int num_bytes = fieldOffset() * sizeof(dfloat);
+  static std::vector<std::unique_ptr<iofld>> usrWriterVector(usrWriterSize);
 
-  occa::memory o_write = platform->device.malloc(num_bytes);
-  o_write.copyFrom(platform->app->bc->o_usrwrk,
-                   num_bytes /* length we are copying */,
-                   0 /* where to place data */,
-                   num_bytes * slot /* where to source data */);
+  auto &usrWriter = usrWriterVector[usrWriterIndex];
 
-  occa::memory o_null;
-  // TODO
-  // nek::writeFld(prefix.c_str(), time, step, write_coords, 1 /* FP64 */, o_null, o_null, o_write,
-  // 1);
+  if(!usrWriter) {
+    usrWriter = iofldFactory::create();
+    auto mesh = entireMesh();
+
+    usrWriter->open(mesh, iofld::mode::write, prefix.c_str());
+
+    if (platform->options.compareArgs("CHECKPOINT PRECISION", "FP32")) {
+      usrWriter->writeAttribute("precision", "32");
+    } else {
+      usrWriter->writeAttribute("precision", "64");
+    }
+    usrWriter->addVariable("scalar00", std::vector<deviceMemory<dfloat>>{platform->app->bc->o_usrwrk.slice(slot * fieldOffset(), mesh->Nlocal)});
+  }
+
+  usrWriter->writeAttribute("outputmesh", write_coords ? "true" : "false");
+  usrWriter->addVariable("time", const_cast<double &>(time));
+  usrWriter->process();
 }
 
 void
 write_field_file(const std::string & prefix, const dfloat time, const int & step)
 {
-  int Nscalar = 0;
-  occa::memory o_s;
-  if (nrs->Nscalar)
-  {
-    o_s = nrs->scalar->o_S;
-    Nscalar = nrs->Nscalar;
+  static std::unique_ptr<iofld> checkpointWriter;
+  if (!checkpointWriter) {
+    checkpointWriter = iofldFactory::create();
   }
 
-  // TODO
-  // nek::writeFld(prefix.c_str(), time, step, 1 /* coords */, 1 /* FP64 */, nrs->fluid->o_U,
-  // nrs->fluid->o_P, o_s, Nscalar);
+  const auto outXYZ = platform->options.compareArgs("CHECKPOINT OUTPUT MESH", "TRUE");
+
+  auto visMesh = entireMesh();
+  checkpointWriter->open(visMesh, iofld::mode::write, prefix.c_str());
+
+  if (!checkpointWriter->isInitialized()) {
+    if (nrs->fluid) {
+      if (platform->options.compareArgs(upperCase(nrs->fluid->name) + " CHECKPOINTING", "TRUE")) {
+        std::vector<occa::memory> o_V;
+        for (int i = 0; i < flowMesh()->dim; i++) {
+          o_V.push_back(nrs->fluid->o_U.slice(i * nrs->fluid->fieldOffset, visMesh->Nlocal));
+        }
+        checkpointWriter->addVariable("velocity", o_V);
+
+        auto o_p = std::vector<occa::memory>{nrs->fluid->o_P.slice(0, visMesh->Nlocal)};
+        checkpointWriter->addVariable("pressure", o_p);
+      }
+    }
+
+    int ns = Nscalar();
+    for (int i = 0; i < ns; i++) {
+      if (platform->options.compareArgs("SCALAR" + scalarDigitStr(i) + " CHECKPOINTING", "TRUE")) {
+        const auto temperatureExists = nrs->scalar->nameToIndex.find("temperature") != nrs->scalar->nameToIndex.end();
+        std::vector<occa::memory> o_Si = {nrs->scalar->o_S.slice(nrs->scalar->fieldOffsetScan[i], visMesh->Nlocal)};
+        if (i == 0 && temperatureExists) {
+          checkpointWriter->addVariable("temperature", o_Si);
+        } else {
+          const auto is = (temperatureExists) ? i - 1 : i;
+          checkpointWriter->addVariable("scalar" + scalarDigitStr(is), o_Si);
+        }
+      }
+    }
+  }
+
+  int N;
+  platform->options.getArgs("POLYNOMIAL DEGREE", N);
+  checkpointWriter->writeAttribute("polynomialOrder", std::to_string(N));
+
+  auto FP64 = platform->options.compareArgs("CHECKPOINT PRECISION", "FP64");
+
+  checkpointWriter->writeAttribute("precision", (FP64) ? "64" : "32");
+  checkpointWriter->writeAttribute("outputMesh", (outXYZ) ? "true" : "false");
+
+  std::string hSchedule;
+  if (platform->options.getArgs("MESH HREFINEMENT SCHEDULE", hSchedule)) {
+    checkpointWriter->writeAttribute("hSchedule", hSchedule);
+  }
+  checkpointWriter->addVariable("time", const_cast<double &>(time));
+  checkpointWriter->process();
 }
 
 void
@@ -125,7 +177,8 @@ buildOnly()
 bool
 hasCHT()
 {
-  for (int is = 0; is < nrs->Nscalar; is++)
+  auto ns = Nscalar();
+  for (int is = 0; is < ns; is++)
   {
     if (platform->options.compareArgs("SCALAR" + scalarDigitStr(is) + " MESH", "SOLID"))
     {
@@ -150,13 +203,13 @@ hasVariableDt()
 bool
 hasBlendingSolver()
 {
-  return !platform->options.compareArgs("MESH SOLVER", "NONE") && hasMovingMesh();
+  return !platform->options.compareArgs("GEOM SOLVER", "NONE") && hasMovingMesh();
 }
 
 bool
 hasUserMeshSolver()
 {
-  return platform->options.compareArgs("MESH SOLVER", "NONE") && hasMovingMesh();
+  return platform->options.compareArgs("GEOM SOLVER", "NONE") && hasMovingMesh();
 }
 
 bool
@@ -180,7 +233,7 @@ endControlNumSteps()
 bool
 hasTemperatureVariable()
 {
-  return nrs->Nscalar ? platform->options.compareArgs("SCALAR00 NAME", "TEMPERATURE") : false;
+  return Nscalar() ? platform->options.compareArgs("SCALAR00 NAME", "TEMPERATURE") : false;
 }
 
 bool
@@ -321,7 +374,7 @@ viscosity()
 {
   dfloat mu;
   setupAide & options = platform->options;
-  options.getArgs("VISCOSITY", mu);
+  options.getArgs("FLUID VISCOSITY", mu);
 
   // because we set rho_ref, U_ref, and L_ref all equal to 1 if our input is dimensional,
   // we don't need to have separate treatments for dimensional vs. nondimensional cases
@@ -334,7 +387,7 @@ Pr()
 {
   dfloat rho, rho_cp, k;
   setupAide & options = platform->options;
-  options.getArgs("DENSITY", rho);
+  options.getArgs("FLUID DENSITY", rho);
   options.getArgs("SCALAR00 TRANSPORTCOEFF", rho_cp);
   options.getArgs("SCALAR00 DIFFUSIONCOEFF", k);
 
@@ -522,7 +575,7 @@ limitTemperature(const double * min_T, const double * max_T)
   mesh_t * mesh = temperatureMesh();
 
   const auto sid = nrs->scalar->nameToIndex.find("temperature")->second;
-  const auto offset = nrs->scalar->fieldOffset();
+  const auto offset = scalarFieldOffset();
 
   for (int i = 0; i < mesh->Nelements; ++i)
   {
@@ -545,10 +598,11 @@ limitTemperature(const double * min_T, const double * max_T)
 void
 copySolutionToHost()
 {
-  mesh_t * mesh = entireMesh();
   nrs->fluid->o_U.copyTo(U.data(),U.size());
   nrs->fluid->o_P.copyTo(P.data(),P.size());
-  nrs->scalar->o_S.copyTo(S.data(),S.size());
+
+  if (Nscalar())
+    nrs->scalar->o_S.copyTo(S.data(),S.size());
 }
 
 void
@@ -735,8 +789,7 @@ centroidFace(int local_elem_id, int local_face_id)
   double mass = 0.0;
 
   int offset = local_elem_id * mesh->Nfaces * mesh->Nfp + local_face_id * mesh->Nfp;
-
-  for (int v = 0; v < mesh->Np; ++v)
+  for (int v = 0; v < mesh->Nfp; ++v)
   {
     int id = mesh->vmapM[offset + v];
     double mass_matrix = sgeo[mesh->Nsgeo * (offset + v) + WSJID];
@@ -967,7 +1020,7 @@ massFlowrate(const std::vector<int> & boundary_id, const nek_mesh::NekMeshEnum p
   // TODO: This function only works correctly if the density is constant, because
   // otherwise we need to copy the density from device to host
   double rho;
-  platform->options.getArgs("DENSITY", rho);
+  platform->options.getArgs("FLUID DENSITY", rho);
 
   double integral = 0.0;
 
@@ -1016,7 +1069,7 @@ sideMassFluxWeightedIntegral(const std::vector<int> & boundary_id,
   // TODO: This function only works correctly if the density is constant, because
   // otherwise we need to copy the density from device to host
   double rho;
-  platform->options.getArgs("DENSITY", rho);
+  platform->options.getArgs("FLUID DENSITY", rho);
 
   double integral = 0.0;
 
@@ -1120,8 +1173,7 @@ heatFluxIntegral(const std::vector<int> & boundary_id, const nek_mesh::NekMeshEn
   double * grad_T = (double *)calloc(3 * mesh->Np, sizeof(double));
 
   const auto sid = nrs->scalar->nameToIndex.find("temperature")->second;
-  const auto offset = nrs->scalar->fieldOffset();
-  std::vector<dfloat> temperature(S.begin() + sid * offset, S.begin() + (sid + 1) * offset);
+  const int offset = sid * scalarFieldOffset();
 
   for (int i = 0; i < mesh->Nelements; ++i)
   {
@@ -1134,7 +1186,7 @@ heatFluxIntegral(const std::vector<int> & boundary_id, const nek_mesh::NekMeshEn
         // some inefficiency if an element has more than one face on the sideset of interest,
         // because we will recompute the gradient in the element more than one time - but this
         // is of little practical interest because this will be a minority of cases.
-        gradient(mesh->Np, i, temperature.data(), grad_T, pp_mesh);
+        gradient(mesh->Np, i, S.data() + offset, grad_T, pp_mesh);
 
         int offset = i * mesh->Nfaces * mesh->Nfp + j * mesh->Nfp;
         for (int v = 0; v < mesh->Nfp; ++v)
@@ -1216,36 +1268,39 @@ gradient(const int offset,
 bool
 isHeatFluxBoundary(const int boundary)
 {
-  // the heat flux boundary is now named 'codedFixedGradient', but 'fixedGradient'
-  // will be present for backwards compatibility
+  auto sid = scalarDigitStr(nrs->scalar->nameToIndex.find("temperature")->second);
+  auto bcType = platform->app->bc->typeId(boundary, "scalar" + sid);
 
-  // TODO
-  // return (bcMap::text(boundary, "scalar00") == "fixedGradient") ||
-  //       (bcMap::text(boundary, "scalar00") == "codedFixedGradient");
-  return true;
+  // the purpose of this function is to check if the user has a non-zero flux boundary
+  // condition so that if MOOSE sends data to NekRS it will actually be used (even
+  // though zeroNeumann is technically a heat flux condition, it would not indicate
+  // the user has set up their model correctly)
+  return bcType == bdryBase::bcType_udfNeumann;
 }
 
 bool
 isMovingMeshBoundary(const int boundary)
 {
-  // TODO
-  // return bcMap::text(boundary, "mesh") == "codedFixedValue";
-  return true;
+  auto bcType = platform->app->bc->typeId(boundary, "geom");
+  return bcType == bdryBase::bcType_udfDirichlet;
 }
 
 bool
 isTemperatureBoundary(const int boundary)
 {
-  auto bcType = platform->app->bc->typeId(boundary, "scalar temperature");
-  return bcType == bdryBase::bcType_zeroDirichlet || bcType == bdryBase::bcType_udfDirichlet;
+  auto sid = scalarDigitStr(nrs->scalar->nameToIndex.find("temperature")->second);
+
+  auto bcType = platform->app->bc->typeId(boundary, "scalar" + sid);
+  return bcType == bdryBase::bcType_udfDirichlet;
 }
 
 const std::string
 temperatureBoundaryType(const int boundary)
 {
-  // TODO
-  // return bcMap::text(boundary, "scalar00");
-  return "";
+  auto sid = scalarDigitStr(nrs->scalar->nameToIndex.find("temperature")->second);
+
+  auto bcType = platform->app->bc->typeId(boundary, "scalar" + sid);
+  return platform->app->bc->sBcIDToText.at(bcType);
 }
 
 int
@@ -1371,12 +1426,11 @@ get_flux(const int id, const int surf_offset)
   int vertex_id = id % mesh->Np;
 
   const auto sid = nrs->scalar->nameToIndex.find("temperature")->second;
-  const auto offset = nrs->scalar->fieldOffset();
-  std::vector<dfloat> temperature(S.begin() + sid * offset, S.begin() + (sid + 1) * offset);
+  const int offset = sid * scalarFieldOffset();
   // This function is slightly inefficient, because we compute grad(T) for all nodes in
   // an element even though we only call this function for one node at a time
   double * grad_T = (double *)calloc(3 * mesh->Np, sizeof(double));
-  gradient(mesh->Np, elem_id, temperature.data(), grad_T, nek_mesh::all);
+  gradient(mesh->Np, elem_id, S.data() + offset, grad_T, nek_mesh::all);
 
   double normal_grad_T = grad_T[vertex_id + 0 * mesh->Np] * sgeo[surf_offset + NXID] +
                          grad_T[vertex_id + 1 * mesh->Np] * sgeo[surf_offset + NYID] +
@@ -1808,6 +1862,14 @@ resolveType<int>()
   return MPI_INT;
 }
 
+int
+Nscalar()
+{
+  int Nscalar;
+  platform->options.getArgs("NUMBER OF SCALARS", Nscalar);
+  return Nscalar;
+}
+
 void
 initializeNekHostArrays()
 {
@@ -1817,7 +1879,9 @@ initializeNekHostArrays()
 
   U.resize(mesh->dim * nrs->fluid->fieldOffset);
   P.resize(mesh->Nlocal);
-  S.resize(nrs->scalar->NSfields * nrs->scalar->fieldOffset()); // offset is same for all scalars
+
+  if (Nscalar())
+    S.resize(nrs->scalar->NSfields * nrs->scalar->fieldOffset()); // offset is same for all scalars
 }
 
 dfloat *

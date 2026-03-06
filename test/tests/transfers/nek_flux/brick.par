@@ -6,18 +6,15 @@
   numSteps = 1
   dt = 5.0e-4
   polynomialOrder = 7
-  writeControl = steps
-  writeInterval = 2
+  checkpointControl = steps
+  checkpointInterval = 2
   scalars = temperature
 
 [MESH]
   file = ../../common_inputs/brick2.re2
 
 [FLUID VELOCITY]
-  #solver = none    # fluid must be solved to read in bIDs
-  boundaryTypeMap = w,w,w,w,w,w
-  rho = 1.0
-  viscosity = -100
+  solver = none
 
 [FLUID PRESSURE]
 

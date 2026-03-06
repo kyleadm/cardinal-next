@@ -1,3 +1,13 @@
+# Directories complete
+
+- auxkernels
+- nek_temp
+- transfers
+- nek_errors EXCEPT FOR nek_errors/deformation (need help)
+- userobjects EXCEPT FOR userobjects/side (need to understand what I was doing with centroidFace)
+- postprocessors
+- nek_file_output
+
 # Cases Tested with v25
 
 | Case Directory                            | Test Name                                                                                    | Pass / Fail                       | Comment                     |
@@ -11,7 +21,7 @@
 | transfers/nek_temperature/volume          | temperature_input                                                                            | ✅ Pass                          |                             |
 | transfers/nek_source                      | multiple_source_transfers<br>multiple_flux_transfers                                         | ✅ Pass<br>✅ Pass              |                             |
 | transfers/nek_scalar_value                | controls                                                                                     | ✅ Pass                          |                             |
-| transfers/nek_flux                        | volume<br>flux                                                                               | ✅ Pass<br>✅ Pass            | Source code updates required (NekInterface.C): replace DIFFUSIVITY with DIFFUSIONCOEFF. |
+| transfers/nek_flux                        | volume<br>flux                                                                               | ✅ Pass<br>✅ Pass              |                             |
 | transfers/nek_postprocessor_value         | nek                                                                                          | ✅ Pass                          |                             |
 | transfers/nearest_point                   | nearest_point_receiver                                                                       | ✅ Pass                          |                             |
 | conduction/identical_interface/cube       | slab_conduction                                                                              | ✅ Pass                          |                             |
@@ -21,6 +31,6 @@
 | conduction/zero_flux                      | zero_flux_total<br>zero_flux_total_vpp<br>vpp_disjoint<br> vpp_disjoint_zero<br>mismatch_length<br>nodes_on_shared  | ✅ Pass<br>✅ Pass<br>✅ Pass<br>✅ Pass<br>✅ Pass<br>✅ Pass |                     |
 | conduction/nonidentical_interface/cylinders | cylinder_conduction<br>cylinder_conduction_subcycle<br>cylinder_conduction_reversed<br>cylinder_conduction_mini<br>cylinder_conduction_exact  | ✅ Pass<br>✅ Pass<br>✅ Pass<br>✅ Pass<br>✅ Pass | |
 | conduction/nonidentical_volume/nondimensional | cylinder_heat_source                                                                     | ✅ Pass             | |
-| conduction/nonidentical_volume/cylinder   | cylinder_heat_source<br>cylinder_exact                                                       | ⏳ Pending Conversion             |     |
+| conduction/nonidentical_volume/cylinder   | cylinder_heat_source<br>cylinder_exact                                                       | ✅ Pass<br>✅ Pass             |     |
 | conduction/reverse_cht                    | reverse_cht                                                                                  | ✅ Pass             |     |
 | nek_errors/usrwrk_transfers               | duplicate_scratch<br>exceed_allocated_field<br>exceed_allocated_scalar<br>field_duplicated_by_field<br>scalar_duplicated_by_field<br>flux_no_boundary<br>source_no_volume<br>flux_slots<br>source_slots<br>problem_field<br>problem_scalar   |  ✅ Pass<br>✅ Pass<br>✅ Pass<br>✅ Pass<br>✅ Pass<br>✅ Pass<br>✅ Pass<br>✅ Pass<br>✅ Pass<br>✅ Pass<br>✅ Pass            |     |
